@@ -1,5 +1,6 @@
 const assert = require('assert')
 const colors = require('colors')
+const getCursorPosition = require('get-cursor-position');
 
 const readline = require('readline')
 
@@ -34,7 +35,19 @@ class Placeholder {
   }
 
   render () {
-    process.stdout.write(this.value ? this._displayValue.cyan : this._displayValue.cyan.dim)
+    let value
+
+    if (this.value) {
+      if (this.value.startsWith(':')) {
+        value = this._displayValue.red
+      } else {
+        value = this._displayValue.cyan
+      }
+    } else {
+      value = this._displayValue.cyan.dim
+    }
+
+    process.stdout.write(value)
   }
 }
 
@@ -66,9 +79,10 @@ class RegularText {
 }
 
 class Template {
-  constructor (template) {
+  constructor (template, {commands = {}} = {}) {
     this._template = template
     this._results = {}
+    this._commands = commands
 
     const placeholders = template.match(/\{(.*?)\}/g)
 
@@ -106,15 +120,13 @@ class Template {
       output: process.stdout
     })
 
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(true)
-    }
-
     readline.emitKeypressEvents(process.stdin, this.rl)
   }
 
   get length () {
-    return this._segments.reduce((acc, segment) => acc + segment.length, 0)
+    return this._segments.reduce((acc, segment) =>
+      acc + segment.length, 0
+    )
   }
 
   get selectedPlaceholder () {
@@ -163,20 +175,22 @@ class Template {
     this.selectedPlaceholder.selected = true
   }
 
+  clearLine() {
+    readline.clearLine(process.stdin, 0)
+    readline.cursorTo(process.stdin, 0)
+  }
+
   async getValues() {
     this.render()
 
     return new Promise((resolve) => {
-      process.stdin.on('keypress', (character, key) => {
+      process.stdin.on('keypress', async (character = '', key) => {
         if (key.ctrl && key.name === 'c') {
-          readline.moveCursor(process.stdin, this.length * -1, 0)
-          readline.clearLine(process.stdin, 0)          
+          this.clearLine()
           process.exit()
         }
 
         if(key.name === 'return') {
-          readline.moveCursor(process.stdin, this.length * -1, 0)
-          readline.clearLine(process.stdin, 0)
           this.rl.close()
 
           return resolve({
@@ -186,12 +200,7 @@ class Template {
           })
         }
 
-        if (!character) {
-          return
-        }
-
-        readline.moveCursor(process.stdin, this.length * -1, 0)
-        readline.clearLine(process.stdin, 0)
+        this.clearLine()
 
         const placeholder = this.selectedPlaceholder
         if (key.name === 'backspace') {
@@ -205,16 +214,28 @@ class Template {
         }
 
         this.render()
+        
+        const command = this._commands[placeholder.value]
+        if (command) {
+          const {row} = getCursorPosition.sync()
+          readline.moveCursor(process.stdin, this.length * -1, 1)
+
+          this.rl.pause()
+          placeholder.value = await command(this.rl)
+          assert.equal(typeof placeholder.value, 'string', 'command should return a string')
+
+          readline.cursorTo(process.stdout, 0, row - 1)
+          readline.clearScreenDown(process.stdout)
+
+          this.render()
+
+          this.rl.resume()
+        }
       })
     })
   }
 }
 
-
-async function main () {
-  const template = new Template('POST /devices/{deviceId}/roles/{roleId}/sd')
-  const results = await template.getValues()
-  console.log(JSON.stringify(results, null, 4))
+module.exports = async (template, options) => {
+  return await new Template(template, options).getValues()  
 }
-
-main()

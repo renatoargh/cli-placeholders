@@ -84,7 +84,7 @@ class Template {
     this._results = {}
     this._commands = commands
 
-    const placeholders = template.match(/\{(.*?)\}/g)
+    const placeholders = template.match(/\{(.*?)\}/g) || []
 
     this._placeholders = []
     this._segments = []
@@ -146,6 +146,14 @@ class Template {
     return results
   }
 
+  get summary () {
+    return {
+      template: this._template,
+      text: this.text,
+      results: this.results
+    }
+  }
+
   render () {
     let offset = 0
     let selectedReached = false
@@ -183,6 +191,11 @@ class Template {
   async getValues() {
     this.render()
 
+    if (!this._placeholders.length) {
+      this.rl.close()
+      return this.summary
+    }
+
     return new Promise((resolve) => {
       process.stdin.on('keypress', async (character = '', key) => {
         if (key.ctrl && key.name === 'c') {
@@ -192,12 +205,7 @@ class Template {
 
         if(key.name === 'return') {
           this.rl.close()
-
-          return resolve({
-            template: this._template,
-            text: this.text,
-            results: this.results 
-          })
+          return resolve(this.summary)
         }
 
         this.clearLine()
@@ -214,7 +222,7 @@ class Template {
         }
 
         this.render()
-        
+
         const command = this._commands[placeholder.value]
         if (command) {
           const {row} = getCursorPosition.sync()
@@ -237,5 +245,5 @@ class Template {
 }
 
 module.exports = async (template, options) => {
-  return await new Template(template, options).getValues()  
+  return await new Template(template, options).getValues()
 }

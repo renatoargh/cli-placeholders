@@ -83,6 +83,7 @@ class Template {
     this._template = template
     this._results = {}
     this._commands = commands
+    this._active = true
 
     const placeholders = template.match(/\{(.*?)\}/g) || []
 
@@ -198,6 +199,10 @@ class Template {
 
     return new Promise((resolve) => {
       process.stdin.on('keypress', async (character = '', key) => {
+        if (!this._active) {
+          return
+        }
+
         if (key.ctrl && key.name === 'c') {
           this.clearLine()
           process.exit()
@@ -205,6 +210,7 @@ class Template {
 
         if(key.name === 'return') {
           this.rl.close()
+          this._active = false
           return resolve(this.summary)
         }
 
